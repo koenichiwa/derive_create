@@ -4,7 +4,7 @@ use quote::{format_ident, quote};
 use std::iter::Iterator;
 use syn::parse_macro_input;
 
-#[proc_macro_derive(Creator, attributes(create, string, path_str))]
+#[proc_macro_derive(Creator, attributes(option, string, path_str))]
 pub fn derive_creator(_item: TokenStream) -> TokenStream {
     let item = parse_macro_input!(_item as syn::DeriveInput);
     let item_ident = item.ident;
@@ -36,14 +36,14 @@ fn function_create(
     item_ident: &proc_macro2::Ident,
     fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
 ) -> proc_macro2::TokenStream {
-    let (create_fields, non_create_fields): (Vec<syn::Field>, Vec<syn::Field>) = fields
+    let (option_fields, non_option_fields): (Vec<syn::Field>, Vec<syn::Field>) = fields
         .iter()
         .cloned()
-        .partition(|field| field.attrs.iter().any(|attr| attr.path.is_ident("create")));
+        .partition(|field| field.attrs.iter().any(|attr| attr.path.is_ident("option")));
 
-    let create_field_arguments = create_fields.iter().map(to_argument);
+    let non_option_field_arguments = non_option_fields.iter().map(to_argument);
 
-    let create_field_setters = create_fields.iter().map(|field| {
+    let non_option_field_setters = non_option_fields.iter().map(|field| {
         let field_name = &field.ident;
         if field.attrs.iter().any(|attr| attr.path.is_ident("string")) {
             quote! {
@@ -66,14 +66,14 @@ fn function_create(
         }
     });
 
-    let non_create_field_setters = non_create_fields.iter().map(|field| {
+    let option_field_setters = option_fields.iter().map(|field| {
         let field_name = &field.ident;
         quote! {
             #field_name : None
         }
     });
 
-    let generics: Vec<proc_macro2::TokenStream> = create_fields
+    let generics: Vec<proc_macro2::TokenStream> = non_option_fields
         .iter()
         .flat_map(|field| field.attrs.iter().map(|attr| &attr.path))
         .unique()
@@ -101,10 +101,10 @@ fn function_create(
     };
 
     quote! {
-        pub fn create#generic_clause(#(#create_field_arguments),*) -> Self {
+        pub fn create#generic_clause(#(#non_option_field_arguments),*) -> Self {
             #item_ident {
-                #(#create_field_setters,)*
-                #(#non_create_field_setters,)*
+                #(#non_option_field_setters,)*
+                #(#option_field_setters,)*
             }
         }
     }
@@ -112,31 +112,28 @@ fn function_create(
 
 fn with_functions(
     fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
-) -> impl Iterator<Item=proc_macro2::TokenStream> +'_ {
-
+) -> impl Iterator<Item = proc_macro2::TokenStream> + '_ {
     fields.iter().map(|field| {
         let field_name = &field.ident.as_ref().unwrap();
         let function_name = format_ident!("with_{}", field_name);
         let field_argument = to_argument(field);
 
-        match &field.ty {
-            syn::Type::Path(type_path) if type_path.path.is_ident("bool") => {
-                quote! {
-                    pub fn #field_name(self) {
-                        self.#function_name(true)
-                    }
-                    pub fn #function_name(mut self, #field_argument) -> Self {
-                        self.#field_name = #field_name;
-                        self
-                    }
-                }
-            },
-            _ => quote! {
-                pub fn #function_name(mut self, #field_argument) -> Self {
-                    self.#field_name = #field_name;
-                    self
-                }
-            },
+        let generics = if field.attrs.iter().any(|attr| attr.path.is_ident("string")) {
+            quote! { <S: AsRef<str>> }
+        } else if field
+            .attrs
+            .iter()
+            .any(|attr| attr.path.is_ident("path_str"))
+        {
+            quote! { <P: AsRef<std::path::Path>> }
+        } else {
+            proc_macro2::TokenStream::new()
+        };
+        quote! {
+            pub fn #function_name#generics(mut self, #field_argument) -> Self {
+                self.#field_name = #field_name;
+                self
+            }
         }
     })
 }
