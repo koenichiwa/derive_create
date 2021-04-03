@@ -23,6 +23,7 @@ pub fn derive_creator(_item: TokenStream) -> TokenStream {
     let with_functions = with_functions(&fields);
 
     let expanded = quote! {
+        #[automatically_derived]
         impl #item_ident {
             #function_create
             #(#with_functions)*
