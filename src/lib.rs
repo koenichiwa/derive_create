@@ -1,6 +1,6 @@
 use itertools::Itertools;
 use proc_macro::TokenStream;
-use quote::quote;
+use quote::{format_ident, quote};
 use std::iter::Iterator;
 use syn::parse_macro_input;
 
@@ -21,12 +21,11 @@ pub fn derive_creator(_item: TokenStream) -> TokenStream {
 
     let function_create = function_create(&item_ident, &fields);
     let with_functions = with_functions(&fields);
-    //TODO: fix with_functions
 
     let expanded = quote! {
         impl #item_ident {
             #function_create
-            
+            #(#with_functions)*
         }
     };
 
@@ -113,41 +112,33 @@ fn function_create(
 
 fn with_functions(
     fields: &syn::punctuated::Punctuated<syn::Field, syn::token::Comma>,
-) -> proc_macro2::TokenStream {
-    let bool_fields = fields.iter().filter(|field| 
-        match &field.ty {
-            syn::Type::Path(type_path) if type_path.path.is_ident("bool") => true,
-            _ => false,
-        }
-    );
-    let field_setters = fields.iter().map(|field| {
-        let field_name = &field.ident;
-        let function_name = format!("with_{}", field_name.as_ref().unwrap());
-        let field_ref = format!("self.{}", field_name.as_ref().unwrap());
-        let field_argument = to_argument(field);
-        eprintln!("{:?}", function_name);
+) -> impl Iterator<Item=proc_macro2::TokenStream> +'_ {
 
-        quote!{
-            pub fn #function_name(mut self, #field_argument) -> Self {
-                #field_ref = #field_name;
-                self
-            }
+    fields.iter().map(|field| {
+        let field_name = &field.ident.as_ref().unwrap();
+        let function_name = format_ident!("with_{}", field_name);
+        let field_argument = to_argument(field);
+
+        match &field.ty {
+            syn::Type::Path(type_path) if type_path.path.is_ident("bool") => {
+                quote! {
+                    pub fn #field_name(self) {
+                        self.#function_name(true)
+                    }
+                    pub fn #function_name(mut self, #field_argument) -> Self {
+                        self.#field_name = #field_name;
+                        self
+                    }
+                }
+            },
+            _ => quote! {
+                pub fn #function_name(mut self, #field_argument) -> Self {
+                    self.#field_name = #field_name;
+                    self
+                }
+            },
         }
-    });
-    let bool_setters = bool_fields.map(|field| {
-        let field_name = &field.ident;
-        let function_name = format!("with_{}", field_name.as_ref().unwrap());
-        quote! {
-            pub fn #field_name(self) {
-                #function_name(true)
-            }
-        }
-    });
-    let combined = quote! {
-        #(#bool_setters)*
-        #(#field_setters)*
-    };
-    combined
+    })
 }
 
 fn to_argument(field: &syn::Field) -> proc_macro2::TokenStream {
