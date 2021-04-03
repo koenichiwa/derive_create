@@ -92,7 +92,7 @@ fn function_create(
         })
         .collect();
 
-    let generic_clause = if generics.len() > 0 {
+    let generic_clause = if !generics.is_empty() {
         quote! {
             <#(#generics,)*>
         }
@@ -118,21 +118,32 @@ fn with_functions(
         let function_name = format_ident!("with_{}", field_name);
         let field_argument = to_argument(field);
 
-        let generics = if field.attrs.iter().any(|attr| attr.path.is_ident("string")) {
-            quote! { <S: AsRef<str>> }
+        if field.attrs.iter().any(|attr| attr.path.is_ident("string")) {
+            quote! {
+                pub fn #function_name<S: AsRef<str>>(mut self, #field_argument) -> Self {
+                    self.#field_name = String::from(#field_name.as_ref());
+                    self
+                }
+            }
         } else if field
             .attrs
             .iter()
             .any(|attr| attr.path.is_ident("path_str"))
         {
-            quote! { <P: AsRef<std::path::Path>> }
+            quote! {
+                pub fn #function_name<P: AsRef<std::path::Path>>(mut self, #field_argument) -> Self {
+                    self.#field_name = #field_name.as_ref()
+                    .to_string_lossy()
+                    .to_string();
+                    self
+                }
+            }
         } else {
-            proc_macro2::TokenStream::new()
-        };
-        quote! {
-            pub fn #function_name#generics(mut self, #field_argument) -> Self {
-                self.#field_name = #field_name;
-                self
+            quote! {
+                pub fn #function_name<P: AsRef<std::path::Path>>(mut self, #field_argument) -> Self {
+                    self.#field_name = #field_name;
+                    self
+                }
             }
         }
     })
