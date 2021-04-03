@@ -1,8 +1,12 @@
 [package]
 name = "derive_create"
 version = "0.1.0-alpha.0"
-authors = ["Koenichiwa <koenvwel@gmail.com>"]
+authors = ["Koen van Wel <koenvwel@gmail.com>"]
 edition = "2018"
+repository = "https://github.com/koenichiwa/derive_create"
+readme = "README.md"
+description = "Helper library for launchd"
+license = "MIT"
 
 [lib]
 proc_macro = true
